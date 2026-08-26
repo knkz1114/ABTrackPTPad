@@ -28,9 +28,10 @@ struct ABTrackPTPadApp: App {
         Window("ABTrackPTPad", id: "settings") {
             TabView {
                 SettingsView().tabItem { Label(L("Gestures"), systemImage: "hand.draw") }
+                AdvancedView().tabItem { Label(L("Advanced"), systemImage: "slider.horizontal.3") }
                 StatusView().tabItem { Label(L("Permissions"), systemImage: "lock.shield") }
             }
-            .frame(width: 480, height: 520)
+            .frame(width: 520, height: 560)
             .id(settings.language)   // rebuild the view tree when the language changes
             .padding()
             .environmentObject(settings)

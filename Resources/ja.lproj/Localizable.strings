@@ -50,3 +50,20 @@
 "Save diagnostics log" = "診断ログを保存";
 "Turn recording on, reproduce the problem, then save: the file goes to ~/Downloads. The app log is at ~/Library/Logs/ABTrackPTPad.log." = "記録を ON にしたうえで問題の操作をしてから保存すると、~/Downloads に書き出されます。アプリのログは ~/Library/Logs/ABTrackPTPad.log にあります。";
 "Failed to set launch at login: %@" = "ログイン時起動の設定に失敗: %@";
+
+/* Advanced tab */
+"Advanced" = "詳細";
+"Smoothing" = "平滑化";
+"Lower is smoother but adds lag. One-euro filter cutoff." = "小さいほど滑らかになりますが遅延が増えます(一€フィルタのカットオフ周波数)。";
+"Tap" = "タップ";
+"Tap timeout" = "タップ判定時間";
+"Tap movement limit" = "タップの移動許容";
+"Drag lock timeout" = "ドラッグロックの猶予";
+"Palm rejection" = "手のひら・親指の除外";
+"Edge zone (left/right)" = "端ゾーン(左右)";
+"Thumb zone (bottom)" = "親指ゾーン(下)";
+"Scroll & swipes" = "スクロールとスワイプ";
+"Momentum" = "慣性";
+"Velocity kept per millisecond. 0.998 matches Apple." = "1 ミリ秒あたりに残る速度。0.998 が Apple と同じ。";
+"Three-finger swipe sensitivity" = "3 本指スワイプの感度";
+"Reset to defaults" = "既定値に戻す";

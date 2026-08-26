@@ -13,21 +13,21 @@ final class GestureEngine {
     static let padWidthMM = 1973 / unitsPerMM      // 155.8
     static let padHeightMM = 1458 / unitsPerMM     // 115.2
 
-    // Thresholds (mm, seconds)
-    private let edgeZoneX = 8.0            // libinput: min(8 mm, 8 % of width)
+    // Thresholds (mm, seconds). The user-adjustable ones come from Settings (defaults follow libinput / Apple).
+    private var edgeZoneX: Double { settings.edgeZone }
     private let edgeZoneTop = 5.0
-    private let thumbZone = 12.0           // bottom band where a second touch is treated as a thumb
+    private var thumbZone: Double { settings.thumbZone }   // bottom band where a second touch is treated as a thumb
     private let edgeRelease = 3.0          // movement that promotes an edge touch to a finger
     private let thumbReleaseSpeed = 20.0   // mm/s
     private let restingAge = 0.5           // a finger down this long without moving is a resting finger
-    private let tapTimeout = 0.18
-    private let tapMoveThreshold = 1.3
+    private var tapTimeout: Double { settings.tapTimeout }
+    private var tapMoveThreshold: Double { settings.tapMoveThreshold }
     private let dragTimeout = 0.16
-    private let dragLockTimeout = 0.3
+    private var dragLockTimeout: Double { settings.dragLockTimeout }
     private let gestureThreshold = 1.5     // scroll / pinch decision
     private let swipeThreshold = 5.0       // three-finger swipe decision
-    private let swipeSpaceMM = 118.0       // horizontal swipe distance for one space
-    private let swipeMissionMM = 71.0      // vertical swipe distance for a full Mission Control pull
+    private var swipeSpaceMM: Double { 118.0 / settings.swipeSensitivity }     // horizontal swipe distance for one space
+    private var swipeMissionMM: Double { 71.0 / settings.swipeSensitivity }    // vertical swipe distance for a full Mission Control pull
 
     private let settings: Settings
     private let sink: EventSink
@@ -98,7 +98,7 @@ final class GestureEngine {
     }
 
     private func newTouch(id: Int, x: Double, y: Double, time t: TimeInterval) -> Touch {
-        var touch = Touch(id: id, x: x, y: y, time: t, minCutoff: 1.5, beta: 0.03)
+        var touch = Touch(id: id, x: x, y: y, time: t, minCutoff: settings.smoothing, beta: 0.03)
         let others = touches.values.filter { $0.role == .finger }
         if x < edgeZoneX || x > Self.padWidthMM - edgeZoneX || y < edgeZoneTop {
             touch.role = .edge
@@ -318,7 +318,7 @@ final class Momentum {
     private var timer: DispatchSourceTimer?
     private var vx = 0.0, vy = 0.0
     private var last = 0.0
-    private let decayPerMS = 0.998
+    private var decayPerMS: Double { min(0.9995, max(0.98, settings.momentumDecay)) }
     private let stopSpeed = 20.0            // pt/s
 
     init(settings: Settings, sink: EventSink) { self.settings = settings; self.sink = sink }
