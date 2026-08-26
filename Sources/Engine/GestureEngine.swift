@@ -19,6 +19,8 @@ final class GestureEngine {
     private var thumbZone: Double { settings.thumbZone }   // bottom band where a second touch is treated as a thumb
     private let edgeRelease = 3.0          // movement that promotes an edge touch to a finger
     private let thumbReleaseSpeed = 20.0   // mm/s
+    private let thumbReleaseTravel = 2.0   // mm
+    private let thumbLandingDelay = 0.15   // s: fingers landing within this of each other are never thumbs
     private let restingAge = 0.5           // a finger down this long without moving is a resting finger
     private var tapTimeout: Double { settings.tapTimeout }
     private var tapMoveThreshold: Double { settings.tapMoveThreshold }
@@ -99,10 +101,12 @@ final class GestureEngine {
 
     private func newTouch(id: Int, x: Double, y: Double, time t: TimeInterval) -> Touch {
         var touch = Touch(id: id, x: x, y: y, time: t, minCutoff: settings.smoothing, beta: 0.03)
-        let others = touches.values.filter { $0.role == .finger }
+        // A touch in the bottom band is a thumb only when another finger has clearly been in use
+        // already; two fingers landing together (scrolling) are both fingers.
+        let establishedFinger = touches.values.contains { $0.role == .finger && t - $0.start > thumbLandingDelay }
         if x < edgeZoneX || x > Self.padWidthMM - edgeZoneX || y < edgeZoneTop {
             touch.role = .edge
-        } else if y > Self.padHeightMM - thumbZone && !others.isEmpty {
+        } else if y > Self.padHeightMM - thumbZone && establishedFinger {
             touch.role = .thumb
         }
         return touch
@@ -249,7 +253,7 @@ final class GestureEngine {
                 if !inZone && touch.rawTravelFromOrigin > edgeRelease { touches[id]!.role = .finger }
             case .thumb:
                 let speed = hypot(touch.delta.x, touch.delta.y) / dt
-                if speed > thumbReleaseSpeed || fingers.isEmpty { touches[id]!.role = .finger }
+                if speed > thumbReleaseSpeed || touch.travel > thumbReleaseTravel || fingers.isEmpty { touches[id]!.role = .finger }
             case .finger:
                 // A finger that has been resting while another one moves is ignored (Apple lets you rest a finger).
                 if fingers.count >= 2, someoneMoving, t - touch.start > restingAge, touch.travel < 1.0 {
