@@ -60,6 +60,12 @@ final class GestureEngine {
     private var dragLockPending = false
 
     private var scrollHistory: [(vx: Double, vy: Double, t: Double)] = []
+    private var pointerHoldUntil = 0.0          // after a finger drops out of a multi-finger gesture
+    private let liftHoldTime = 0.15             // libinput: gesture switch timeout
+
+    /// `defaults write io.github.knkz1114.abtrackptpad traceGestures -bool YES` logs touch roles and mode changes.
+    private let trace = UserDefaults.standard.bool(forKey: "traceGestures")
+    private var lastTraceKey = ""
 
     init(settings: Settings, sink: EventSink) {
         self.settings = settings
@@ -126,6 +132,14 @@ final class GestureEngine {
 
         let active = touches.values.filter { $0.role == .finger }.sorted { $0.start < $1.start }
         let n = active.count
+        if trace {
+            let key = touches.sorted { $0.key < $1.key }.map { "\($0.key):\($0.value.role)" }.joined(separator: " ") + " mode=\(mode)"
+            if key != lastTraceKey {
+                lastTraceKey = key
+                let pos = touches.sorted { $0.key < $1.key }.map { String(format: "%d@(%.0f,%.0f)", $0.key, $0.value.raw.x, $0.value.raw.y) }.joined(separator: " ")
+                Log.write("touches: \(key) \(pos)")
+            }
+        }
 
         // Physical click (click pad): two fingers → right button
         if button != buttonDown {
@@ -171,6 +185,9 @@ final class GestureEngine {
         if countChanged { dx = 0; dy = 0; dspread = 0 }   // the centroid jumps when a finger is added or removed
 
         if countChanged {
+            // The pad sometimes loses one finger for a few frames mid-gesture; the remaining finger is
+            // still moving at scroll speed, so hold pointer motion briefly instead of flinging the cursor.
+            if n < lastCount && lastCount >= 2 { pointerHoldUntil = t + liftHoldTime }
             endMode(time: t)
             switch n {
             case 0: mode = .idle
@@ -186,7 +203,7 @@ final class GestureEngine {
         case .idle:
             break
         case .pointer:
-            movePointer(dx, dy, dt: dt)
+            if t >= pointerHoldUntil { movePointer(dx, dy, dt: dt) }
         case .twoUndecided:
             if sink.leftDown { movePointer(dx, dy, dt: dt); break }   // dragging with a second finger down
             lockDx += dx; lockDy += dy; lockSpread += dspread
@@ -272,6 +289,7 @@ final class GestureEngine {
 
     private func movePointer(_ dx: Double, _ dy: Double, dt: Double) {
         guard dx != 0 || dy != 0 else { return }
+        if trace, hypot(dx, dy) > 1.5 { Log.write(String(format: "large pointer step %.1f mm in %.0f ms (mode %@)", hypot(dx, dy), dt * 1000, "\(mode)")) }
         let speed = hypot(dx, dy) / dt                       // mm/s
         let gain = accel.gain(mmPerSecond: speed)            // pt per mm
         sink.moveCursor(dx: dx * gain, dy: dy * gain)
