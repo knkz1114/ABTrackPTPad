@@ -1,0 +1,52 @@
+/* Menu bar */
+"Settings…" = "設定…";
+"Quit ABTrackPTPad" = "ABTrackPTPad を終了";
+"Permission required" = "権限が必要です";
+"Trackpad: not connected" = "トラックパッド: 未接続";
+"Trackpad: connected (mouse mode)" = "トラックパッド: 接続(マウスモード)";
+"Trackpad: active" = "トラックパッド: 動作中";
+
+/* Tabs */
+"Gestures" = "ジェスチャ";
+"Permissions" = "権限";
+
+/* Gestures tab */
+"Pointer" = "カーソル";
+"Tracking speed" = "軌跡の速さ";
+"Slow" = "遅い";
+"Fast" = "速い";
+"Tap to click" = "タップでクリック";
+"Tap then drag" = "タップしてからドラッグ";
+"Two-finger tap for right click" = "2 本指タップで右クリック";
+"Scroll & zoom" = "スクロールとズーム";
+"Natural scrolling (content follows fingers)" = "ナチュラルなスクロール(指の動きに内容が追従)";
+"Scrolling speed" = "スクロールの速さ";
+"Three-finger swipes" = "3 本指スワイプ";
+"Invert left/right (switch Spaces)" = "左右の向きを反転(Space の切替)";
+"Invert up/down (Mission Control)" = "上下の向きを反転(Mission Control)";
+"Launch ABTrackPTPad at login" = "ログイン時に ABTrackPTPad を起動";
+"Language" = "言語";
+"System" = "システムに従う";
+
+/* Permissions tab */
+"Accessibility" = "アクセシビリティ";
+"Input Monitoring" = "入力監視";
+"Granted" = "許可済み";
+"Not granted" = "未許可";
+"Open System Settings" = "システム設定を開く";
+"Grant both to use the trackpad. A rebuilt app counts as a new program: remove the old entry and enable the new one." = "両方を許可するとトラックパッドが使えるようになります。再ビルドしたアプリは別プログラム扱いになるため、古い項目を削除して新しい項目を ON にしてください。";
+"Request permissions" = "許可を要求";
+"Trackpad" = "トラックパッド";
+"Status" = "状態";
+"Cannot open: permission missing" = "権限が無いため開けません";
+"Not connected (pair it over Bluetooth)" = "未接続(Bluetooth で接続してください)";
+"Connected — mouse mode (waiting for PTP switch)" = "接続 — マウスモード(PTP 切替待ち)";
+"Connected — running in PTP mode" = "接続 — PTP モードで動作中";
+"Reports" = "レポート";
+"%d/s · last %@" = "%d/秒 ・ 最終 %@";
+"None" = "なし";
+"Diagnostics" = "診断";
+"Record raw reports (keeps the last 10 s in memory)" = "生レポートを記録する(直近 10 秒をメモリに保持)";
+"Save diagnostics log" = "診断ログを保存";
+"Turn recording on, reproduce the problem, then save: the file goes to ~/Downloads. The app log is at ~/Library/Logs/ABTrackPTPad.log." = "記録を ON にしたうえで問題の操作をしてから保存すると、~/Downloads に書き出されます。アプリのログは ~/Library/Logs/ABTrackPTPad.log にあります。";
+"Failed to set launch at login: %@" = "ログイン時起動の設定に失敗: %@";
