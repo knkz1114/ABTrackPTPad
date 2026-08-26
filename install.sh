@@ -10,6 +10,12 @@ case "${1:-install}" in
     sleep 1
     rm -rf /Applications/ABTrackPTPad.app
     cp -R build/ABTrackPTPad.app /Applications/
+    # Only the installed copy may be registered with LaunchServices: two apps with the same bundle id
+    # confuse System Settings (the app then never shows up in the Accessibility list).
+    LSREG=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+    "$LSREG" -u build/ABTrackPTPad.app >/dev/null 2>&1 || true
+    rm -rf build/ABTrackPTPad.app
+    "$LSREG" -f /Applications/ABTrackPTPad.app >/dev/null 2>&1 || true
     open /Applications/ABTrackPTPad.app
     echo "installed /Applications/ABTrackPTPad.app"
     echo "Grant Accessibility and Input Monitoring when prompted (System Settings > Privacy & Security)."
