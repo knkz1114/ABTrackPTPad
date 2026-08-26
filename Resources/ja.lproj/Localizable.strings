@@ -67,3 +67,4 @@
 "Velocity kept per millisecond. 0.998 matches Apple." = "1 ミリ秒あたりに残る速度。0.998 が Apple と同じ。";
 "Three-finger swipe sensitivity" = "3 本指スワイプの感度";
 "Reset to defaults" = "既定値に戻す";
+"Momentum scrolling" = "慣性スクロール";

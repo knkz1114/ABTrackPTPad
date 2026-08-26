@@ -317,7 +317,11 @@ final class GestureEngine {
         case .scroll:
             sink.scroll(dx: 0, dy: 0, phase: .ended, momentum: .none, natural: settings.naturalScroll)
             // Momentum only if the fingers were still moving when they left the pad.
-            if let last = scrollHistory.last, t - last.t < 0.05, hypot(last.vx, last.vy) > 40 {
+            if trace {
+                let last = scrollHistory.last.map { String(format: "v=(%.0f,%.0f) age=%.0fms", $0.vx, $0.vy, (t - $0.t) * 1000) } ?? "no history"
+                Log.write("scroll ended: \(last) history=\(scrollHistory.count) momentum=\(settings.momentumScroll)")
+            }
+            if settings.momentumScroll, let last = scrollHistory.last, t - last.t < 0.05, hypot(last.vx, last.vy) > 40 {
                 let vx = scrollHistory.map(\.vx).reduce(0, +) / Double(scrollHistory.count)
                 let vy = scrollHistory.map(\.vy).reduce(0, +) / Double(scrollHistory.count)
                 momentum.start(vx: vx, vy: vy)

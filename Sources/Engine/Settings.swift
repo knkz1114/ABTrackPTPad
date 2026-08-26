@@ -9,6 +9,7 @@ final class Settings: ObservableObject {
 
     @Published var pointerSpeed: Double { didSet { save("pointerSpeed", pointerSpeed) } }       // 0…3
     @Published var naturalScroll: Bool { didSet { save("naturalScroll", naturalScroll) } }
+    @Published var momentumScroll: Bool { didSet { save("momentumScroll", momentumScroll) } }
     @Published var scrollSpeed: Double { didSet { save("scrollSpeed", scrollSpeed) } }          // pt per pad unit
     @Published var tapToClick: Bool { didSet { save("tapToClick", tapToClick) } }
     @Published var tapDrag: Bool { didSet { save("tapDrag", tapDrag) } }
@@ -36,6 +37,7 @@ final class Settings: ObservableObject {
         func d<T>(_ key: String, _ fallback: T) -> T { defaults.object(forKey: key) as? T ?? fallback }
         pointerSpeed = d("pointerSpeed", 1.5)
         naturalScroll = d("naturalScroll", true)
+        momentumScroll = d("momentumScroll", true)
         scrollSpeed = d("scrollSpeed", 0.30)
         tapToClick = d("tapToClick", true)
         tapDrag = d("tapDrag", true)

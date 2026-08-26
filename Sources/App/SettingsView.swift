@@ -19,8 +19,9 @@ struct SettingsView: View {
             }
             Section(L("Scroll & zoom")) {
                 Toggle(L("Natural scrolling (content follows fingers)"), isOn: $settings.naturalScroll)
+                Toggle(L("Momentum scrolling"), isOn: $settings.momentumScroll)
                 LabeledContent(L("Scrolling speed")) {
-                    Slider(value: $settings.scrollSpeed, in: 0.1...0.8, step: 0.05) {
+                    Slider(value: $settings.scrollSpeed, in: 0.1...1.5, step: 0.05) {
                         EmptyView()
                     } minimumValueLabel: { Text(L("Slow")) } maximumValueLabel: { Text(L("Fast")) }
                 }
