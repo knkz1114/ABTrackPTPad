@@ -22,6 +22,7 @@ final class GestureEngine {
     private let thumbReleaseTravel = 2.0   // mm
     private let thumbLandingDelay = 0.15   // s: fingers landing within this of each other are never thumbs
     private let restingAge = 0.5           // a finger down this long without moving is a resting finger
+    private let restingGap = 3.0           // mm another finger must have moved more than the resting one
     private var tapTimeout: Double { settings.tapTimeout }
     private var tapMoveThreshold: Double { settings.tapMoveThreshold }
     private let dragTimeout = 0.16
@@ -77,7 +78,8 @@ final class GestureEngine {
     /// the first `contactCount` slots are examined; the confidence bit is unreliable on this firmware and is ignored.
     func handleReport(_ d: [UInt8], time t: TimeInterval) {
         guard d.count >= 8 else { return }
-        let dt = prevTime == 0 ? 0.008 : min(0.05, max(0.001, t - prevTime))
+        // Reports can arrive in bursts over Bluetooth; never treat a gap shorter than half a frame as real.
+        let dt = prevTime == 0 ? 0.008 : min(0.05, max(0.004, t - prevTime))
         let nSlots = (d.count - 4) / 4
         let count = Int(d[4 * nSlots + 2])
         let valid = count > 0 ? min(count, nSlots) : nSlots
@@ -245,7 +247,7 @@ final class GestureEngine {
     /// Promote / demote edge, thumb and resting touches.
     private func classifyTouches(time t: TimeInterval, dt: Double) {
         let fingers = touches.values.filter { $0.role == .finger }
-        let someoneMoving = fingers.contains { hypot($0.delta.x, $0.delta.y) > 0.1 }
+        let maxTravel = fingers.map(\.travel).max() ?? 0
         for (id, touch) in touches {
             switch touch.role {
             case .edge:
@@ -255,8 +257,9 @@ final class GestureEngine {
                 let speed = hypot(touch.delta.x, touch.delta.y) / dt
                 if speed > thumbReleaseSpeed || touch.travel > thumbReleaseTravel || fingers.isEmpty { touches[id]!.role = .finger }
             case .finger:
-                // A finger that has been resting while another one moves is ignored (Apple lets you rest a finger).
-                if fingers.count >= 2, someoneMoving, t - touch.start > restingAge, touch.travel < 1.0 {
+                // A finger that stays put while another one has clearly moved is ignored (Apple lets you rest a finger).
+                // Both fingers moving together (scrolling) never trigger this: the travel gap stays small.
+                if fingers.count >= 2, t - touch.start > restingAge, touch.travel < 0.7, maxTravel > touch.travel + restingGap {
                     touches[id]!.role = .resting
                 }
             case .resting:
