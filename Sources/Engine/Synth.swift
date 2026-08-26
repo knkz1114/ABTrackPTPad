@@ -54,12 +54,21 @@ final class CGEventSink: EventSink {
         return best
     }
 
+    // The window server keeps the pointer on whole points, so sub-point movement would be lost
+    // if it were added to the current position every time. Accumulate it and move by whole points.
+    private var pendingX = 0.0
+    private var pendingY = 0.0
+
     func moveCursor(dx: Double, dy: Double) {
-        let p = clampToScreens(CGPoint(x: cursor.x + dx, y: cursor.y + dy))
+        pendingX += dx; pendingY += dy
+        let ix = pendingX.rounded(.towardZero), iy = pendingY.rounded(.towardZero)
+        guard ix != 0 || iy != 0 else { return }
+        pendingX -= ix; pendingY -= iy
+        let p = clampToScreens(CGPoint(x: cursor.x + ix, y: cursor.y + iy))
         let type: CGEventType = leftDown ? .leftMouseDragged : (rightDown ? .rightMouseDragged : .mouseMoved)
         guard let e = CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: p, mouseButton: .left) else { return }
-        e.setIntegerValueField(.mouseEventDeltaX, value: Int64(dx.rounded()))
-        e.setIntegerValueField(.mouseEventDeltaY, value: Int64(dy.rounded()))
+        e.setIntegerValueField(.mouseEventDeltaX, value: Int64(ix))
+        e.setIntegerValueField(.mouseEventDeltaY, value: Int64(iy))
         e.post(tap: .cghidEventTap)
     }
 

@@ -39,21 +39,4 @@ final class Settings: ObservableObject {
 
     private func save(_ key: String, _ value: Any) { defaults.set(value, forKey: key) }
 
-    // Derived engine parameters
-
-    /// pt per pad unit before acceleration (≈ 4.4 … 14 pt/mm)
-    var pointerGain: Double { 0.35 + 0.25 * pointerSpeed }
-
-    // Fixed tuning
-    let pointerAccelMax = 3.2            // max multiplier at high speed
-    let pointerAccelSpeed = 5.0          // units/ms at which the multiplier saturates
-    let tapMaxDuration: TimeInterval = 0.25
-    let tapMaxMovement = 18.0            // units (~1.4 mm)
-    let tapDragGap: TimeInterval = 0.30
-    let momentumDecay = 3.2              // 1/s exponential decay
-    let momentumStop = 20.0              // pt/s
-    let gestureLockDistance = 22.0       // units of movement before a 2/3-finger gesture is classified
-    let pinchRatio = 1.4                 // spread change must exceed this × translation to count as a pinch
-    let swipeHScale = 1.0 / 1500.0       // progress per unit (1.0 == one space)
-    let swipeVScale = 1.0 / 900.0        // progress per unit (1.0 == a full Mission Control pull)
 }

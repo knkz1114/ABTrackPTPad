@@ -1,45 +1,72 @@
 import Foundation
 import CoreGraphics
 
-struct Contact {
-    var id: Int
-    var x: Double
-    var y: Double
-}
-
 /// Interprets Precision Touchpad reports and drives an `EventSink`.
+///
+/// Pointer motion uses Apple's parametric acceleration (see `PointerAcceleration`) on
+/// one-euro-smoothed finger positions; tap, drag, palm and thumb handling follow libinput's
+/// thresholds; two-finger scrolling maps 1:1 to the screen with Apple-style momentum.
 @MainActor
 final class GestureEngine {
-    enum Mode { case idle, pointer, twoUndecided, scroll, pinch, multiUndecided, swipeH, swipeV, buttonDrag }
+    // Pad geometry from the HID descriptor
+    static let unitsPerMM = 12.66
+    static let padWidthMM = 1973 / unitsPerMM      // 155.8
+    static let padHeightMM = 1458 / unitsPerMM     // 115.2
+
+    // Thresholds (mm, seconds)
+    private let edgeZoneX = 8.0            // libinput: min(8 mm, 8 % of width)
+    private let edgeZoneTop = 5.0
+    private let thumbZone = 12.0           // bottom band where a second touch is treated as a thumb
+    private let edgeRelease = 3.0          // movement that promotes an edge touch to a finger
+    private let thumbReleaseSpeed = 20.0   // mm/s
+    private let restingAge = 0.5           // a finger down this long without moving is a resting finger
+    private let tapTimeout = 0.18
+    private let tapMoveThreshold = 1.3
+    private let dragTimeout = 0.16
+    private let dragLockTimeout = 0.3
+    private let gestureThreshold = 1.5     // scroll / pinch decision
+    private let swipeThreshold = 5.0       // three-finger swipe decision
+    private let swipeSpaceMM = 118.0       // horizontal swipe distance for one space
+    private let swipeMissionMM = 71.0      // vertical swipe distance for a full Mission Control pull
 
     private let settings: Settings
     private let sink: EventSink
     private let momentum: Momentum
+    private var accel: PointerAcceleration
+    private var accelSpeed: Double
 
-    private var contacts: [Int: Contact] = [:]
-    private var prevCentroid: (Double, Double)?
-    private var prevSpread: Double?
+    private var touches: [Int: Touch] = [:]
     private var prevTime = 0.0
-    private var mode: Mode = .idle
     private var lastCount = 0
-    private var fingersInSession = 0
+
+    enum Mode { case idle, pointer, twoUndecided, scroll, pinch, multiUndecided, swipeH, swipeV }
+    private var mode: Mode = .idle
+    private var lockDx = 0.0, lockDy = 0.0, lockSpread = 0.0
+    private var spreadBase = 0.0
+    private var prevSpread: Double?
+    private var swipeMotion: SwipeMotion = .horizontal
+
+    // Touch session (first finger down … last finger up)
+    private var touching = false
     private var sessionStart = 0.0
-    private var sessionTravel = 0.0
-    private var lockTravel = 0.0
-    private var lockSpread = 0.0
-    private var lockDx = 0.0, lockDy = 0.0
-    private var pinchBase = 0.0
-    private var lastScroll = (dx: 0.0, dy: 0.0, t: 0.0)
+    private var maxFingers = 0
+    private var tapCandidate = false
     private var buttonDown = false
     private var lastTapUp = -Double.infinity
     private var tapDragging = false
-    private var touching = false
+    private var dragLockPending = false
+
+    private var scrollHistory: [(vx: Double, vy: Double, t: Double)] = []
 
     init(settings: Settings, sink: EventSink) {
         self.settings = settings
         self.sink = sink
-        self.momentum = Momentum(settings: settings, sink: sink)
+        momentum = Momentum(settings: settings, sink: sink)
+        accelSpeed = settings.pointerSpeed
+        accel = PointerAcceleration(trackingSpeed: accelSpeed)
     }
+
+    // MARK: report parsing
 
     /// Feed one PTP input report (payload after the report ID).
     ///
@@ -48,24 +75,51 @@ final class GestureEngine {
     /// the first `contactCount` slots are examined; the confidence bit is unreliable on this firmware and is ignored.
     func handleReport(_ d: [UInt8], time t: TimeInterval) {
         guard d.count >= 8 else { return }
+        let dt = prevTime == 0 ? 0.008 : min(0.05, max(0.001, t - prevTime))
         let nSlots = (d.count - 4) / 4
         let count = Int(d[4 * nSlots + 2])
         let valid = count > 0 ? min(count, nSlots) : nSlots
         for i in 0..<valid {
             let b = d[4 * i]
             let tip = (b >> 1) & 1 != 0, id = Int((b >> 2) & 7)
-            let x = Double(Int(d[4 * i + 1]) | (Int(d[4 * i + 2] & 0x0F) << 8))
-            let y = Double(Int(d[4 * i + 2] >> 4) | (Int(d[4 * i + 3]) << 4))
-            if tip { contacts[id] = Contact(id: id, x: x, y: y) } else { contacts[id] = nil }
+            let x = Double(Int(d[4 * i + 1]) | (Int(d[4 * i + 2] & 0x0F) << 8)) / Self.unitsPerMM
+            let y = Double(Int(d[4 * i + 2] >> 4) | (Int(d[4 * i + 3]) << 4)) / Self.unitsPerMM
+            if tip {
+                if touches[id] != nil {
+                    touches[id]!.update(x: x, y: y, time: t, dt: dt)
+                } else {
+                    touches[id] = newTouch(id: id, x: x, y: y, time: t)
+                }
+            } else {
+                touches[id] = nil
+            }
         }
-        processFrame(button: d[4 * nSlots + 3] & 1 != 0, time: t)
+        processFrame(button: d[4 * nSlots + 3] & 1 != 0, time: t, dt: dt)
     }
 
-    private func processFrame(button: Bool, time t: TimeInterval) {
-        let active = Array(contacts.values)
-        let n = active.count
-        let dt = prevTime == 0 ? 0.008 : max(0.001, t - prevTime)
+    private func newTouch(id: Int, x: Double, y: Double, time t: TimeInterval) -> Touch {
+        var touch = Touch(id: id, x: x, y: y, time: t, minCutoff: 1.5, beta: 0.03)
+        let others = touches.values.filter { $0.role == .finger }
+        if x < edgeZoneX || x > Self.padWidthMM - edgeZoneX || y < edgeZoneTop {
+            touch.role = .edge
+        } else if y > Self.padHeightMM - thumbZone && !others.isEmpty {
+            touch.role = .thumb
+        }
+        return touch
+    }
+
+    // MARK: per-frame processing
+
+    private func processFrame(button: Bool, time t: TimeInterval, dt: Double) {
         prevTime = t
+        if settings.pointerSpeed != accelSpeed {
+            accelSpeed = settings.pointerSpeed
+            accel = PointerAcceleration(trackingSpeed: accelSpeed)
+        }
+        classifyTouches(time: t, dt: dt)
+
+        let active = touches.values.filter { $0.role == .finger }.sorted { $0.start < $1.start }
+        let n = active.count
 
         // Physical click (click pad): two fingers → right button
         if button != buttonDown {
@@ -73,41 +127,49 @@ final class GestureEngine {
             if button {
                 sink.button(n >= 2 ? .right : .left, down: true)
             } else {
-                if sink.leftDown { sink.button(.left, down: false) }
+                if sink.leftDown && !tapDragging { sink.button(.left, down: false) }
                 if sink.rightDown { sink.button(.right, down: false) }
             }
         }
 
-        // Touch session: first finger down … last finger up
+        // Session start
         if n > 0 && !touching {
-            touching = true; sessionStart = t; sessionTravel = 0; fingersInSession = 0
+            touching = true
+            sessionStart = t
+            maxFingers = 0
+            tapCandidate = true
             momentum.stop(sendEnd: true)
-            if settings.tapDrag && t - lastTapUp < settings.tapDragGap && n == 1 && !sink.leftDown {
+            if dragLockPending {
+                dragLockPending = false                      // finger came back: drag continues
+            } else if settings.tapToClick && settings.tapDrag && n == 1 && t - lastTapUp < dragTimeout && !sink.leftDown {
                 tapDragging = true
                 sink.button(.left, down: true)
             }
         }
-        fingersInSession = max(fingersInSession, n)
+        maxFingers = max(maxFingers, n)
+        if tapCandidate && (t - sessionStart > tapTimeout || active.contains { $0.rawTravelFromOrigin > tapMoveThreshold }) {
+            tapCandidate = false
+        }
 
-        // Centroid and spread
-        var cx = 0.0, cy = 0.0
-        for c in active { cx += c.x; cy += c.y }
-        if n > 0 { cx /= Double(n); cy /= Double(n) }
-        var spread = 0.0
-        if n >= 2 { spread = hypot(active[0].x - active[1].x, active[0].y - active[1].y) }
-        var ddx = 0.0, ddy = 0.0, dspread = 0.0
-        if let p = prevCentroid, n > 0 { ddx = cx - p.0; ddy = cy - p.1 }
-        if let s = prevSpread, n >= 2 { dspread = spread - s }
+        // Centroid, spread and their deltas (smoothed positions)
+        var dx = 0.0, dy = 0.0, spread = 0.0, dspread = 0.0
+        if n > 0 {
+            for f in active { dx += f.delta.x; dy += f.delta.y }
+            dx /= Double(n); dy /= Double(n)
+        }
+        if n >= 2 {
+            spread = hypot(active[0].smooth.x - active[1].smooth.x, active[0].smooth.y - active[1].smooth.y)
+            if let p = prevSpread { dspread = spread - p }
+        }
         let countChanged = n != lastCount
-        if countChanged { ddx = 0; ddy = 0; dspread = 0 }      // the centroid jumps when a finger is added/removed
-        sessionTravel += hypot(ddx, ddy)
+        if countChanged { dx = 0; dy = 0; dspread = 0 }   // the centroid jumps when a finger is added or removed
 
         if countChanged {
             endMode(time: t)
             switch n {
             case 0: mode = .idle
-            case 1: mode = sink.leftDown ? .buttonDrag : .pointer
-            case 2: mode = .twoUndecided; lockTravel = 0; lockSpread = 0; lockDx = 0; lockDy = 0
+            case 1: mode = .pointer
+            case 2: mode = .twoUndecided; lockDx = 0; lockDy = 0; lockSpread = 0
             default: mode = .multiUndecided; lockDx = 0; lockDy = 0
             }
             if n == 2 && !sink.leftDown { sink.scroll(dx: 0, dy: 0, phase: .mayBegin, momentum: .none, natural: settings.naturalScroll) }
@@ -117,56 +179,54 @@ final class GestureEngine {
         switch mode {
         case .idle:
             break
-        case .pointer, .buttonDrag:
-            movePointer(ddx, ddy, dt: dt)
+        case .pointer:
+            movePointer(dx, dy, dt: dt)
         case .twoUndecided:
-            if sink.leftDown { movePointer(ddx, ddy, dt: dt); break }
-            lockTravel += hypot(ddx, ddy); lockSpread += abs(dspread)
-            lockDx += ddx; lockDy += ddy
-            if max(lockTravel, lockSpread) > settings.gestureLockDistance {
-                if lockSpread > lockTravel * settings.pinchRatio {
-                    mode = .pinch; pinchBase = spread
-                    sink.magnify(0, phase: .began)
-                } else {
-                    mode = .scroll
-                    let (sx, sy) = scrollDelta(lockDx, lockDy)
-                    sink.scroll(dx: sx, dy: sy, phase: .began, momentum: .none, natural: settings.naturalScroll)
-                    lastScroll = (sx, sy, t)
-                }
+            if sink.leftDown { movePointer(dx, dy, dt: dt); break }   // dragging with a second finger down
+            lockDx += dx; lockDy += dy; lockSpread += dspread
+            let translation = hypot(lockDx, lockDy)
+            if abs(lockSpread) > gestureThreshold && abs(lockSpread) > translation {
+                mode = .pinch; spreadBase = spread
+                sink.magnify(0, phase: .began)
+            } else if translation > gestureThreshold {
+                mode = .scroll
+                scrollHistory.removeAll()
+                emitScroll(lockDx, lockDy, dt: dt, phase: .began, time: t)
             }
         case .scroll:
-            if ddx != 0 || ddy != 0 {
-                let (sx, sy) = scrollDelta(ddx, ddy)
-                sink.scroll(dx: sx, dy: sy, phase: .changed, momentum: .none, natural: settings.naturalScroll)
-                lastScroll = (sx / dt, sy / dt, t)
-            }
+            if dx != 0 || dy != 0 { emitScroll(dx, dy, dt: dt, phase: .changed, time: t) }
         case .pinch:
-            if dspread != 0, pinchBase > 0 { sink.magnify(dspread / pinchBase, phase: .changed) }
+            if dspread != 0, spreadBase > 0 { sink.magnify(dspread / spreadBase, phase: .changed) }
         case .multiUndecided:
-            lockDx += ddx; lockDy += ddy
-            if hypot(lockDx, lockDy) > settings.gestureLockDistance {
+            lockDx += dx; lockDy += dy
+            if hypot(lockDx, lockDy) > swipeThreshold {
                 if abs(lockDx) > abs(lockDy) {
-                    mode = .swipeH
+                    mode = .swipeH; swipeMotion = .horizontal
                     sink.dockSwipe(delta: hDelta(lockDx), motion: .horizontal, phase: .began)
                 } else {
-                    mode = .swipeV
+                    mode = .swipeV; swipeMotion = .vertical
                     sink.dockSwipe(delta: vDelta(lockDy), motion: .vertical, phase: .began)
                 }
             }
         case .swipeH:
-            if ddx != 0 { sink.dockSwipe(delta: hDelta(ddx), motion: .horizontal, phase: .changed) }
+            if dx != 0 { sink.dockSwipe(delta: hDelta(dx), motion: .horizontal, phase: .changed) }
         case .swipeV:
-            if ddy != 0 { sink.dockSwipe(delta: vDelta(ddy), motion: .vertical, phase: .changed) }
+            if dy != 0 { sink.dockSwipe(delta: vDelta(dy), motion: .vertical, phase: .changed) }
         }
 
-        // Last finger up: tap detection
+        // Last finger up
         if n == 0 && touching {
             touching = false
             if tapDragging {
-                tapDragging = false
-                sink.button(.left, down: false)
-            } else if settings.tapToClick && !buttonDown && t - sessionStart < settings.tapMaxDuration && sessionTravel < settings.tapMaxMovement {
-                switch fingersInSession {
+                dragLockPending = true                       // keep the button down for a moment (drag lock)
+                DispatchQueue.main.asyncAfter(deadline: .now() + dragLockTimeout) { [weak self] in
+                    guard let self, self.dragLockPending else { return }
+                    self.dragLockPending = false
+                    self.tapDragging = false
+                    self.sink.button(.left, down: false)
+                }
+            } else if settings.tapToClick && tapCandidate && !buttonDown {
+                switch maxFingers {
                 case 1: sink.click(.left); lastTapUp = t
                 case 2: if settings.twoFingerTapRightClick { sink.click(.right) }
                 case 3: sink.click(.center)
@@ -175,25 +235,55 @@ final class GestureEngine {
             }
         }
 
-        prevCentroid = n > 0 ? (cx, cy) : nil
         prevSpread = n >= 2 ? spread : nil
     }
 
-    // Finger moving left → next space (negative progress); finger moving up → Mission Control (positive progress).
-    private func hDelta(_ dx: Double) -> Double { (settings.invertSwipeH ? -dx : dx) * settings.swipeHScale }
-    private func vDelta(_ dy: Double) -> Double { (settings.invertSwipeV ? dy : -dy) * settings.swipeVScale }
-
-    private func scrollDelta(_ dx: Double, _ dy: Double) -> (Double, Double) {
-        let s = settings.naturalScroll ? 1.0 : -1.0
-        return (dx * settings.scrollSpeed * s, dy * settings.scrollSpeed * s)
+    /// Promote / demote edge, thumb and resting touches.
+    private func classifyTouches(time t: TimeInterval, dt: Double) {
+        let fingers = touches.values.filter { $0.role == .finger }
+        let someoneMoving = fingers.contains { hypot($0.delta.x, $0.delta.y) > 0.1 }
+        for (id, touch) in touches {
+            switch touch.role {
+            case .edge:
+                let inZone = touch.raw.x < edgeZoneX || touch.raw.x > Self.padWidthMM - edgeZoneX || touch.raw.y < edgeZoneTop
+                if !inZone && touch.rawTravelFromOrigin > edgeRelease { touches[id]!.role = .finger }
+            case .thumb:
+                let speed = hypot(touch.delta.x, touch.delta.y) / dt
+                if speed > thumbReleaseSpeed || fingers.isEmpty { touches[id]!.role = .finger }
+            case .finger:
+                // A finger that has been resting while another one moves is ignored (Apple lets you rest a finger).
+                if fingers.count >= 2, someoneMoving, t - touch.start > restingAge, touch.travel < 1.0 {
+                    touches[id]!.role = .resting
+                }
+            case .resting:
+                if touch.travel > 2.0 { touches[id]!.role = .finger }
+            }
+        }
     }
+
+    // MARK: outputs
 
     private func movePointer(_ dx: Double, _ dy: Double, dt: Double) {
         guard dx != 0 || dy != 0 else { return }
-        let speed = hypot(dx, dy) / (dt * 1000)                 // units per ms
-        let accel = 1 + (settings.pointerAccelMax - 1) * min(1, speed / settings.pointerAccelSpeed)
-        sink.moveCursor(dx: dx * settings.pointerGain * accel, dy: dy * settings.pointerGain * accel)
+        let speed = hypot(dx, dy) / dt                       // mm/s
+        let gain = accel.gain(mmPerSecond: speed)            // pt per mm
+        sink.moveCursor(dx: dx * gain, dy: dy * gain)
     }
+
+    /// Scroll gain in points per millimetre: the setting is expressed in pt per pad unit (0.30 ≈ 1:1 on screen).
+    private var scrollGain: Double { settings.scrollSpeed * Self.unitsPerMM }
+
+    private func emitScroll(_ dx: Double, _ dy: Double, dt: Double, phase: Phase, time t: Double) {
+        let s = settings.naturalScroll ? 1.0 : -1.0
+        let sx = dx * scrollGain * s, sy = dy * scrollGain * s
+        sink.scroll(dx: sx, dy: sy, phase: phase, momentum: .none, natural: settings.naturalScroll)
+        scrollHistory.append((sx / dt, sy / dt, t))
+        if scrollHistory.count > 4 { scrollHistory.removeFirst() }
+    }
+
+    // Finger moving left → next space (negative progress); finger moving up → Mission Control (positive progress).
+    private func hDelta(_ dx: Double) -> Double { (settings.invertSwipeH ? -dx : dx) / swipeSpaceMM }
+    private func vDelta(_ dy: Double) -> Double { (settings.invertSwipeV ? dy : -dy) / swipeMissionMM }
 
     private func endMode(time t: TimeInterval) {
         switch mode {
@@ -201,13 +291,17 @@ final class GestureEngine {
             if !sink.leftDown { sink.scroll(dx: 0, dy: 0, phase: .cancelled, momentum: .none, natural: settings.naturalScroll) }
         case .scroll:
             sink.scroll(dx: 0, dy: 0, phase: .ended, momentum: .none, natural: settings.naturalScroll)
-            if t - lastScroll.t < 0.08 { momentum.start(vx: lastScroll.dx, vy: lastScroll.dy) }
+            // Momentum only if the fingers were still moving when they left the pad.
+            if let last = scrollHistory.last, t - last.t < 0.05, hypot(last.vx, last.vy) > 40 {
+                let vx = scrollHistory.map(\.vx).reduce(0, +) / Double(scrollHistory.count)
+                let vy = scrollHistory.map(\.vy).reduce(0, +) / Double(scrollHistory.count)
+                momentum.start(vx: vx, vy: vy)
+            }
+            scrollHistory.removeAll()
         case .pinch:
             sink.magnify(0, phase: .ended)
-        case .swipeH:
-            sink.dockSwipe(delta: 0, motion: .horizontal, phase: .ended)
-        case .swipeV:
-            sink.dockSwipe(delta: 0, motion: .vertical, phase: .ended)
+        case .swipeH, .swipeV:
+            sink.dockSwipe(delta: 0, motion: swipeMotion, phase: .ended)
         default:
             break
         }
@@ -216,6 +310,7 @@ final class GestureEngine {
 
 // MARK: - Momentum scrolling
 
+/// Apple-style deceleration: velocity decays by 0.998 per millisecond (UIScrollView's normal rate).
 @MainActor
 final class Momentum {
     private let settings: Settings
@@ -223,12 +318,13 @@ final class Momentum {
     private var timer: DispatchSourceTimer?
     private var vx = 0.0, vy = 0.0
     private var last = 0.0
+    private let decayPerMS = 0.998
+    private let stopSpeed = 20.0            // pt/s
 
     init(settings: Settings, sink: EventSink) { self.settings = settings; self.sink = sink }
 
     func start(vx: Double, vy: Double) {
         stop(sendEnd: false)
-        guard hypot(vx, vy) > settings.momentumStop * 4 else { return }
         self.vx = vx; self.vy = vy; last = CFAbsoluteTimeGetCurrent()
         sink.scroll(dx: 0, dy: 0, phase: .none, momentum: .begin, natural: settings.naturalScroll)
         let t = DispatchSource.makeTimerSource(queue: .main)
@@ -239,10 +335,13 @@ final class Momentum {
 
     private func tick() {
         let t = CFAbsoluteTimeGetCurrent(); let dt = t - last; last = t
-        let k = exp(-settings.momentumDecay * dt)
+        let k = pow(decayPerMS, dt * 1000)
+        // Integrate the exponential exactly over the frame.
+        let dist = (1 - k) / (-log(decayPerMS) * 1000)
+        let dx = vx * dist, dy = vy * dist
         vx *= k; vy *= k
-        if hypot(vx, vy) < settings.momentumStop { stop(sendEnd: true); return }
-        sink.scroll(dx: vx * dt, dy: vy * dt, phase: .none, momentum: .cont, natural: settings.naturalScroll)
+        if hypot(vx, vy) < stopSpeed { stop(sendEnd: true); return }
+        sink.scroll(dx: dx, dy: dy, phase: .none, momentum: .cont, natural: settings.naturalScroll)
     }
 
     func stop(sendEnd: Bool) {
