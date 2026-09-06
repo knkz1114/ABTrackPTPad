@@ -65,7 +65,7 @@ final class Settings: ObservableObject {
     static let defaultDragLockTimeout = 0.3
     static let defaultEdgeZone = 8.0
     static let defaultThumbZone = 12.0
-    static let defaultMomentumDecay = 0.998
+    static let defaultMomentumDecay = 0.9952   // measured on the built-in trackpad
     static let defaultSwipeSensitivity = 1.0
 
     func resetAdvanced() {

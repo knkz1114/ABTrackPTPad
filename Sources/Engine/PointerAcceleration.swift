@@ -32,6 +32,9 @@ struct PointerAcceleration {
 
     private static let cursorScale = 96.0 / 67.0
     private static let frameRate = 67.0
+    /// Measured against the built-in trackpad (devtools captures/internal2.csv): the theoretical
+    /// f(v)×96 overshoots the real pointer speed by a constant ≈2.05 across 16…230 mm/s.
+    private static let calibration = 0.49
 
     private let c: Curve
     private let m0: Double, b0: Double     // tangent line after tangentLinear
@@ -78,11 +81,12 @@ struct PointerAcceleration {
 
     /// Pointer speed in points per second for a finger speed in millimetres per second.
     func pointerSpeed(mmPerSecond: Double) -> Double {
-        curve(inchesPerSecond: mmPerSecond / 25.4) * Self.cursorScale * Self.frameRate
+        curve(inchesPerSecond: mmPerSecond / 25.4) * Self.cursorScale * Self.frameRate * Self.calibration
     }
 
     /// Gain in points per millimetre at a given finger speed.
     func gain(mmPerSecond v: Double) -> Double {
-        v > 0.01 ? pointerSpeed(mmPerSecond: v) / v : c.gainLinear * Self.cursorScale * Self.frameRate / 25.4
+        v > 0.01 ? pointerSpeed(mmPerSecond: v) / v
+                 : c.gainLinear * Self.cursorScale * Self.frameRate * Self.calibration / 25.4
     }
 }

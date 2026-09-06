@@ -298,9 +298,17 @@ final class GestureEngine {
     /// Scroll gain in points per millimetre: the setting is expressed in pt per pad unit (0.30 ≈ 1:1 on screen).
     private var scrollGain: Double { settings.scrollSpeed * Self.unitsPerMM }
 
+    /// Scroll acceleration measured on the built-in trackpad: ≈flat up to 120 mm/s, then rising to
+    /// ≈2.6× above 340 mm/s. Normalised at 150 mm/s so the mid-speed feel matches the plain gain.
+    private func scrollAccel(_ v: Double) -> Double {
+        let factor = min(2.6, max(0.85, 0.85 + (v - 120) * (2.6 - 0.85) / (340 - 120)))
+        return factor / 1.09
+    }
+
     private func emitScroll(_ dx: Double, _ dy: Double, dt: Double, phase: Phase, time t: Double) {
         let s = settings.naturalScroll ? 1.0 : -1.0
-        let sx = dx * scrollGain * s, sy = dy * scrollGain * s
+        let a = scrollAccel(hypot(dx, dy) / dt)
+        let sx = dx * scrollGain * a * s, sy = dy * scrollGain * a * s
         sink.scroll(dx: sx, dy: sy, phase: phase, momentum: .none, natural: settings.naturalScroll)
         scrollHistory.append((sx / dt, sy / dt, t))
         if scrollHistory.count > 4 { scrollHistory.removeFirst() }

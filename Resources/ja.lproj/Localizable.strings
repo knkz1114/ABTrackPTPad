@@ -64,7 +64,7 @@
 "Thumb zone (bottom)" = "親指ゾーン(下)";
 "Scroll & swipes" = "スクロールとスワイプ";
 "Momentum" = "慣性";
-"Velocity kept per millisecond. 0.998 matches Apple." = "1 ミリ秒あたりに残る速度。0.998 が Apple と同じ。";
+"Velocity kept per millisecond. 0.9952 measured on the built-in trackpad." = "1 ミリ秒あたりに残る速度。内蔵トラックパッドの実測値は 0.9952。";
 "Three-finger swipe sensitivity" = "3 本指スワイプの感度";
 "Reset to defaults" = "既定値に戻す";
 "Momentum scrolling" = "慣性スクロール";

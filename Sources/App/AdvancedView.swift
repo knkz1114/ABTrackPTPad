@@ -20,8 +20,8 @@ struct AdvancedView: View {
                 slider(L("Thumb zone (bottom)"), $settings.thumbZone, 0...25, step: 0.5, format: "%.1f mm")
             }
             Section(L("Scroll & swipes")) {
-                slider(L("Momentum"), $settings.momentumDecay, 0.990...0.9995, step: 0.0005, format: "%.4f",
-                       help: L("Velocity kept per millisecond. 0.998 matches Apple."))
+                slider(L("Momentum"), $settings.momentumDecay, 0.990...0.999, step: 0.0002, format: "%.4f",
+                       help: L("Velocity kept per millisecond. 0.9952 measured on the built-in trackpad."))
                 slider(L("Three-finger swipe sensitivity"), $settings.swipeSensitivity, 0.5...2, step: 0.05, format: "×%.2f")
             }
             Section {
