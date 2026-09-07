@@ -323,7 +323,7 @@ final class GestureEngine {
         guard dx != 0 || dy != 0 else { return }
         if trace, hypot(dx, dy) > 1.5 { Log.write(String(format: "large pointer step %.1f mm in %.0f ms (mode %@)", hypot(dx, dy), dt * 1000, "\(mode)")) }
         let speed = hypot(dx, dy) / dt                       // mm/s
-        let gain = accel.gain(mmPerSecond: speed)            // pt per mm
+        let gain = accel.measuredGain(mmPerSecond: speed)    // pt per mm
         sink.moveCursor(dx: dx * gain, dy: dy * gain)
     }
 

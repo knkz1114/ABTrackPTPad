@@ -89,4 +89,35 @@ struct PointerAcceleration {
         v > 0.01 ? pointerSpeed(mmPerSecond: v) / v
                  : c.gainLinear * Self.cursorScale * Self.frameRate * Self.calibration / 25.4
     }
+
+    // MARK: measured gain
+
+    /// Gain measured on the built-in trackpad at tracking speed 3.0
+    /// (devtools captures internal2/internal-slow3): (finger mm/s, pointer pt per mm).
+    private static let measured: [(v: Double, g: Double)] = [
+        (0, 7.0), (5, 7.05), (10, 7.7), (16, 8.9), (25, 10.7), (40, 15.6), (60, 20.8),
+        (90, 30.0), (130, 37.0), (175, 51.5), (230, 61.5), (375, 81.6),
+    ]
+    private static let reference = PointerAcceleration(trackingSpeed: 3.0)
+
+    private static func measuredGain(_ v: Double) -> Double {
+        let pts = measured
+        if v <= pts.first!.v { return pts.first!.g }
+        if v >= pts.last!.v {
+            // extend with the parametric slope beyond the last measurement
+            return pts.last!.g * reference.gain(mmPerSecond: v) / reference.gain(mmPerSecond: pts.last!.v)
+        }
+        for i in 1..<pts.count where v <= pts[i].v {
+            let a = pts[i - 1], b = pts[i]
+            return a.g + (b.g - a.g) * (v - a.v) / (b.v - a.v)
+        }
+        return pts.last!.g
+    }
+
+    /// Gain anchored to the measured curve: the measurement is the tracking-speed-3.0 baseline,
+    /// other slider positions scale it by the ratio of the parametric curves.
+    func measuredGain(mmPerSecond v: Double) -> Double {
+        let vv = max(v, 0.5)
+        return Self.measuredGain(vv) * gain(mmPerSecond: vv) / Self.reference.gain(mmPerSecond: vv)
+    }
 }
