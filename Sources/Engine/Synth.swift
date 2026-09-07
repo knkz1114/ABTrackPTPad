@@ -16,6 +16,8 @@ protocol EventSink: AnyObject {
     func button(_ b: CGMouseButton, down: Bool)
     func scroll(dx: Double, dy: Double, phase: Phase, momentum: MomentumPhase, natural: Bool)
     func magnify(_ delta: Double, phase: Phase)
+    func rotate(_ degrees: Double, phase: Phase)
+    func smartZoom()
     func dockSwipe(delta: Double, motion: SwipeMotion, phase: Phase)
 }
 
@@ -122,6 +124,25 @@ final class CGEventSink: EventSink {
         field(e, 110, Int64(8))                                 // kIOHIDEventTypeZoom
         field(e, 132, phase.rawValue)
         field(e, 113, delta)
+        e.location = cursor
+        e.post(tap: .cghidEventTap)
+    }
+
+    func rotate(_ degrees: Double, phase: Phase) {
+        guard let e = CGEvent(source: nil) else { return }
+        e.type = CGEventType(rawValue: 29)!                     // NSEventTypeGesture
+        field(e, 110, Int64(5))                                 // kIOHIDEventTypeRotation
+        field(e, 132, phase.rawValue)
+        field(e, 114, degrees)
+        e.location = cursor
+        e.post(tap: .cghidEventTap)
+    }
+
+    /// Smart zoom (two-finger double tap).
+    func smartZoom() {
+        guard let e = CGEvent(source: nil) else { return }
+        e.type = CGEventType(rawValue: 29)!                     // NSEventTypeGesture
+        field(e, 110, Int64(22))                                // kIOHIDEventTypeZoomToggle
         e.location = cursor
         e.post(tap: .cghidEventTap)
     }

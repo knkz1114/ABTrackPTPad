@@ -14,6 +14,9 @@ final class Settings: ObservableObject {
     @Published var tapToClick: Bool { didSet { save("tapToClick", tapToClick) } }
     @Published var tapDrag: Bool { didSet { save("tapDrag", tapDrag) } }
     @Published var twoFingerTapRightClick: Bool { didSet { save("twoFingerTapRightClick", twoFingerTapRightClick) } }
+    @Published var rotateEnabled: Bool { didSet { save("rotateEnabled", rotateEnabled) } }
+    @Published var smartZoom: Bool { didSet { save("smartZoom", smartZoom) } }
+    @Published var threeFingerDrag: Bool { didSet { save("threeFingerDrag", threeFingerDrag) } }
     @Published var invertSwipeH: Bool { didSet { save("invertSwipeH", invertSwipeH) } }
     @Published var invertSwipeV: Bool { didSet { save("invertSwipeV", invertSwipeV) } }
     @Published var launchAtLogin: Bool { didSet { save("launchAtLogin", launchAtLogin) } }
@@ -42,6 +45,9 @@ final class Settings: ObservableObject {
         tapToClick = d("tapToClick", true)
         tapDrag = d("tapDrag", true)
         twoFingerTapRightClick = d("twoFingerTapRightClick", true)
+        rotateEnabled = d("rotateEnabled", true)
+        smartZoom = d("smartZoom", true)
+        threeFingerDrag = d("threeFingerDrag", false)
         invertSwipeH = d("invertSwipeH", false)
         invertSwipeV = d("invertSwipeV", false)
         launchAtLogin = d("launchAtLogin", false)

@@ -16,10 +16,13 @@ struct SettingsView: View {
                     .disabled(!settings.tapToClick)
                 Toggle(L("Two-finger tap for right click"), isOn: $settings.twoFingerTapRightClick)
                     .disabled(!settings.tapToClick)
+                Toggle(L("Three-finger drag"), isOn: $settings.threeFingerDrag)
             }
             Section(L("Scroll & zoom")) {
                 Toggle(L("Natural scrolling (content follows fingers)"), isOn: $settings.naturalScroll)
                 Toggle(L("Momentum scrolling"), isOn: $settings.momentumScroll)
+                Toggle(L("Rotate with two fingers"), isOn: $settings.rotateEnabled)
+                Toggle(L("Smart zoom (two-finger double tap)"), isOn: $settings.smartZoom)
                 LabeledContent(L("Scrolling speed")) {
                     Slider(value: $settings.scrollSpeed, in: 0.1...1.5, step: 0.05) {
                         EmptyView()

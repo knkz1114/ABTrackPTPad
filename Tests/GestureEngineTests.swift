@@ -9,6 +9,8 @@ final class RecordingSink: EventSink {
         case button(CGMouseButton, Bool)
         case scroll(dx: Double, dy: Double, phase: Phase, momentum: MomentumPhase)
         case magnify(Double, Phase)
+        case rotate(Double, Phase)
+        case smartZoom
         case dockSwipe(Double, SwipeMotion, Phase)
     }
     var calls: [Call] = []
@@ -21,6 +23,8 @@ final class RecordingSink: EventSink {
     }
     func scroll(dx: Double, dy: Double, phase: Phase, momentum: MomentumPhase, natural: Bool) { calls.append(.scroll(dx: dx, dy: dy, phase: phase, momentum: momentum)) }
     func magnify(_ d: Double, phase: Phase) { calls.append(.magnify(d, phase)) }
+    func rotate(_ d: Double, phase: Phase) { calls.append(.rotate(d, phase)) }
+    func smartZoom() { calls.append(.smartZoom) }
     func dockSwipe(delta: Double, motion: SwipeMotion, phase: Phase) { calls.append(.dockSwipe(delta, motion, phase)) }
 }
 
@@ -51,6 +55,9 @@ func check(_ cond: Bool, _ name: String) {
     print((cond ? "PASS " : "FAIL ") + name)
     if !cond { failures += 1 }
 }
+
+@MainActor
+func gb() -> Double { CFAbsoluteTimeGetCurrent() }
 
 @MainActor
 func runTests() {
@@ -107,6 +114,32 @@ func runTests() {
         var t = 0.0
         for x in stride(from: 500, through: 560, by: 5) { e.handleReport(makeReport([(0, x, 700)]), time: t); t += 0.008 }
         check(s.calls.contains { if case .move = $0 { return true } else { return false } }, "contact id 0 survives empty slots")
+    }
+    // 7a. two fingers rotating → rotate began
+    do {
+        let (e, s) = freshEngine()
+        var t = gb()
+        for i in 0..<25 {
+            let a = Double(i) * 0.03
+            let cx = 700.0, cy = 700.0, r = 300.0
+            let x0 = Int(cx + r * cos(a)), y0 = Int(cy + r * sin(a))
+            let x1 = Int(cx - r * cos(a)), y1 = Int(cy - r * sin(a))
+            e.handleReport(makeReport([(0, x0, y0), (1, x1, y1)]), time: t); t += 0.008
+        }
+        let rot = s.calls.contains { if case .rotate(_, .began) = $0 { return true } else { return false } }
+        check(rot, "two fingers rotating → rotate began")
+    }
+    // 7b. two two-finger taps → smart zoom
+    do {
+        let (e, s) = freshEngine()
+        var t = gb()
+        e.handleReport(makeReport([(0, 600, 700), (1, 800, 700)]), time: t)
+        e.handleReport(makeReport([]), time: t + 0.08)
+        t += 0.2
+        e.handleReport(makeReport([(0, 600, 700), (1, 800, 700)]), time: t)
+        e.handleReport(makeReport([]), time: t + 0.08)
+        let zoom = s.calls.contains { if case .smartZoom = $0 { return true } else { return false } }
+        check(zoom, "two-finger double tap → smart zoom")
     }
     // 7. tap-to-click disabled → no click
     do {

@@ -29,6 +29,8 @@ final class GestureEngine {
     private var dragLockTimeout: Double { settings.dragLockTimeout }
     private let gestureThreshold = 1.5     // scroll / pinch decision
     private let swipeThreshold = 5.0       // three-finger swipe decision
+    private let rotateThresholdDeg = 8.0   // two-finger rotation decision
+    private let smartZoomInterval = 0.35   // s between two two-finger taps
     private var swipeSpaceMM: Double { 118.0 / settings.swipeSensitivity }     // horizontal swipe distance for one space
     private var swipeMissionMM: Double { 71.0 / settings.swipeSensitivity }    // vertical swipe distance for a full Mission Control pull
 
@@ -42,11 +44,13 @@ final class GestureEngine {
     private var prevTime = 0.0
     private var lastCount = 0
 
-    enum Mode { case idle, pointer, twoUndecided, scroll, pinch, multiUndecided, swipeH, swipeV }
+    enum Mode { case idle, pointer, twoUndecided, scroll, pinch, rotate, multiUndecided, drag3, swipeH, swipeV }
     private var mode: Mode = .idle
-    private var lockDx = 0.0, lockDy = 0.0, lockSpread = 0.0
+    private var lockDx = 0.0, lockDy = 0.0, lockSpread = 0.0, lockAngle = 0.0
     private var spreadBase = 0.0
     private var prevSpread: Double?
+    private var prevAngle: Double?
+    private var lastTwoFingerTap = -Double.infinity
     private var swipeMotion: SwipeMotion = .horizontal
 
     // Touch session (first finger down … last finger up)
@@ -88,7 +92,10 @@ final class GestureEngine {
         let dt = prevTime == 0 ? 0.008 : min(0.05, max(0.004, t - prevTime))
         let nSlots = (d.count - 4) / 4
         let count = Int(d[4 * nSlots + 2])
-        let valid = count > 0 ? min(count, nSlots) : nSlots
+        // All slots fit every contact (4 slots ≥ 4 max contacts), so a report with contact count 0
+        // means "no fingers", never a hybrid continuation packet.
+        if count == 0 { touches.removeAll() }
+        let valid = min(count, nSlots)
         for i in 0..<valid {
             let b = d[4 * i]
             let tip = (b >> 1) & 1 != 0, id = Int((b >> 2) & 7)
@@ -177,12 +184,18 @@ final class GestureEngine {
             for f in active { dx += f.delta.x; dy += f.delta.y }
             dx /= Double(n); dy /= Double(n)
         }
+        var angle = 0.0, dangle = 0.0
         if n >= 2 {
             spread = hypot(active[0].smooth.x - active[1].smooth.x, active[0].smooth.y - active[1].smooth.y)
             if let p = prevSpread { dspread = spread - p }
+            angle = atan2(active[1].smooth.y - active[0].smooth.y, active[1].smooth.x - active[0].smooth.x) * 180 / .pi
+            if let p = prevAngle {
+                dangle = angle - p
+                if dangle > 180 { dangle -= 360 } else if dangle < -180 { dangle += 360 }
+            }
         }
         let countChanged = n != lastCount
-        if countChanged { dx = 0; dy = 0; dspread = 0 }   // the centroid jumps when a finger is added or removed
+        if countChanged { dx = 0; dy = 0; dspread = 0; dangle = 0 }   // the centroid jumps when a finger is added or removed
 
         if countChanged {
             // The pad sometimes loses one finger for a few frames mid-gesture; the remaining finger is
@@ -192,7 +205,11 @@ final class GestureEngine {
             switch n {
             case 0: mode = .idle
             case 1: mode = .pointer
-            case 2: mode = .twoUndecided; lockDx = 0; lockDy = 0; lockSpread = 0
+            case 2: mode = .twoUndecided; lockDx = 0; lockDy = 0; lockSpread = 0; lockAngle = 0
+            case 3 where settings.threeFingerDrag:
+                mode = .drag3
+                if !sink.leftDown { sink.button(.left, down: true) }
+                tapDragging = false
             default: mode = .multiUndecided; lockDx = 0; lockDy = 0
             }
             if n == 2 && !sink.leftDown { sink.scroll(dx: 0, dy: 0, phase: .mayBegin, momentum: .none, natural: settings.naturalScroll) }
@@ -206,9 +223,12 @@ final class GestureEngine {
             if t >= pointerHoldUntil { movePointer(dx, dy, dt: dt) }
         case .twoUndecided:
             if sink.leftDown { movePointer(dx, dy, dt: dt); break }   // dragging with a second finger down
-            lockDx += dx; lockDy += dy; lockSpread += dspread
+            lockDx += dx; lockDy += dy; lockSpread += dspread; lockAngle += dangle
             let translation = hypot(lockDx, lockDy)
-            if abs(lockSpread) > gestureThreshold && abs(lockSpread) > translation {
+            if settings.rotateEnabled && abs(lockAngle) > rotateThresholdDeg && translation < gestureThreshold && abs(lockSpread) < gestureThreshold {
+                mode = .rotate
+                sink.rotate(0, phase: .began)
+            } else if abs(lockSpread) > gestureThreshold && abs(lockSpread) > translation {
                 mode = .pinch; spreadBase = spread
                 sink.magnify(0, phase: .began)
             } else if translation > gestureThreshold {
@@ -220,6 +240,10 @@ final class GestureEngine {
             if dx != 0 || dy != 0 { emitScroll(dx, dy, dt: dt, phase: .changed, time: t) }
         case .pinch:
             if dspread != 0, spreadBase > 0 { sink.magnify(dspread / spreadBase, phase: .changed) }
+        case .rotate:
+            if dangle != 0 { sink.rotate(dangle, phase: .changed) }
+        case .drag3:
+            movePointer(dx, dy, dt: dt)
         case .multiUndecided:
             lockDx += dx; lockDy += dy
             if hypot(lockDx, lockDy) > swipeThreshold {
@@ -251,7 +275,14 @@ final class GestureEngine {
             } else if settings.tapToClick && tapCandidate && !buttonDown {
                 switch maxFingers {
                 case 1: sink.click(.left); lastTapUp = t
-                case 2: if settings.twoFingerTapRightClick { sink.click(.right) }
+                case 2:
+                    if settings.smartZoom && t - lastTwoFingerTap < smartZoomInterval {
+                        sink.smartZoom()
+                        lastTwoFingerTap = -.infinity
+                    } else {
+                        if settings.twoFingerTapRightClick { sink.click(.right) }
+                        lastTwoFingerTap = t
+                    }
                 case 3: sink.click(.center)
                 default: break
                 }
@@ -259,6 +290,7 @@ final class GestureEngine {
         }
 
         prevSpread = n >= 2 ? spread : nil
+        prevAngle = n >= 2 ? angle : nil
     }
 
     /// Promote / demote edge, thumb and resting touches.
@@ -337,6 +369,18 @@ final class GestureEngine {
             scrollHistory.removeAll()
         case .pinch:
             sink.magnify(0, phase: .ended)
+        case .rotate:
+            sink.rotate(0, phase: .ended)
+        case .drag3:
+            // Same grace period as tap-drag: lifting all fingers briefly keeps the drag alive.
+            dragLockPending = true
+            tapDragging = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + dragLockTimeout) { [weak self] in
+                guard let self, self.dragLockPending else { return }
+                self.dragLockPending = false
+                self.tapDragging = false
+                self.sink.button(.left, down: false)
+            }
         case .swipeH, .swipeV:
             sink.dockSwipe(delta: 0, motion: swipeMotion, phase: .ended)
         default:
