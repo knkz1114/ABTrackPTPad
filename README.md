@@ -20,6 +20,9 @@ macOS でマルチタッチジェスチャ付きトラックパッドとして�
 | 2 本指スワイプ | スクロール(慣性あり) |
 | 2 本指ピンチ | ズーム |
 | 3 本指タップ | 中クリック |
+| 2 本指回転 | 回転(写真・プレビュー等) |
+| 2 本指ダブルタップ | スマートズーム |
+| 3 本指ドラッグ(設定で ON) | ドラッグ(離しても 300 ms は継続) |
 | 3〜4 本指 上 / 下 | Mission Control / App Exposé |
 | 3〜4 本指 左右 | Space 切替 |
 
@@ -72,12 +75,15 @@ macOS は起動中のプロセスに後から付けた権限を反映しない�
 
 **ジェスチャ タブ**
 
-- 軌跡の速さ
-- タップでクリック / タップしてからドラッグ / 2 本指タップで右クリック
-- ナチュラルなスクロール(指の動きに内容が追従)/ スクロールの速さ
+- 軌跡の速さ(内蔵トラックパッドの「軌跡の速さ」と同じ意味。同じ値にすると同じ速さになります)
+- タップでクリック / タップしてからドラッグ / 2 本指タップで右クリック / 3 本指でドラッグ
+- 2 本指で回転 / スマートズーム(2 本指でダブルタップ)
+- ナチュラルなスクロール / 慣性スクロール / スクロールの速さ
 - 3 本指スワイプの左右・上下の向き反転
 - ログイン時に起動
 - 言語(システムに従う / 日本語 / English)— 即時切替
+
+**詳細 タブ** — 平滑化の強さ、タップの判定時間・移動許容、ドラッグロックの猶予、手のひら・親指ゾーンの幅、慣性の減衰、3 本指スワイプの感度。「既定値に戻す」ボタン付き
 
 変更は即時反映されます。
 
@@ -148,13 +154,18 @@ A. パッドがマウスモードで動いており、PTP モードへの切り�
 - 3〜4 本指スワイプ(DockSwipe)は macOS 26.5 では通常の CGEvent フィールドが無視されるため、
   [joshuarli/iss](https://github.com/joshuarli/iss) と同じく、シリアライズした CGEvent の field 4205 に IOHID の生ペイロードを埋め込む
 - ファームウェアの Confidence ビットは信頼できない(本物の指でも 0 になる)ため無視している。レポートは 4 スロット(21 バイト)
+- ポインタ加速は Apple の IOHIDFamily のパラメトリック曲線(Magic Trackpad 用のパラメータ)をベースに、
+  内蔵トラックパッドで実測したゲイン(指速度 5〜375 mm/s の 12 点)へ較正。座標は一€フィルタで平滑化し、
+  タップ・パーム・親指判定のしきい値は libinput の値に準拠。慣性の減速も実測値(0.9952/ms)
 
 ## 構成
 
 ```
 Sources/Engine/
   Settings.swift        設定(UserDefaults 連動)
-  Synth.swift           CGEvent 合成(カーソル / クリック / スクロール / ピンチ / DockSwipe)
+  Synth.swift           CGEvent 合成(カーソル / クリック / スクロール / ピンチ / 回転 / DockSwipe)
+  PointerAcceleration.swift  Apple のパラメトリック加速曲線と実測ゲインテーブル
+  TouchFilter.swift     一€フィルタによる座標平滑化と接触の状態
   GestureEngine.swift   PTP レポート解釈とジェスチャ判定、慣性スクロール
   HIDDevice.swift       IOHIDManager: 占有、PTP モード切替、レポート受信、権限待ちの再試行
   Diagnostics.swift     生レポートの記録と保存
@@ -163,6 +174,7 @@ Sources/App/
   ABTrackPTPadApp.swift メニューバー UI(SwiftUI MenuBarExtra)と設定ウィンドウ
   StatusModel.swift     権限・接続状態の監視、自動再起動、ログイン時起動
   SettingsView.swift    ジェスチャ タブ
+  AdvancedView.swift    詳細 タブ
   StatusView.swift      権限 タブ
   Localization.swift    UI 文字列の切替(L("…"))
 Resources/Info.plist

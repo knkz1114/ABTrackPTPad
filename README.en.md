@@ -20,6 +20,9 @@ officially not supported on macOS) into a multi-touch gesture trackpad on macOS.
 | Two-finger swipe | Scroll (with momentum) |
 | Two-finger pinch | Zoom |
 | Three-finger tap | Middle click |
+| Two-finger rotate | Rotate (Photos, Preview, …) |
+| Two-finger double tap | Smart zoom |
+| Three-finger drag (optional) | Drag (kept alive for 300 ms after lifting) |
 | Three/four-finger swipe up / down | Mission Control / App Exposé |
 | Three/four-finger swipe left / right | Switch Spaces |
 
@@ -73,12 +76,15 @@ Menu-bar hand icon → *Settings…* opens the settings window.
 
 **Gestures tab**
 
-- Tracking speed
-- Tap to click / Tap then drag / Two-finger tap for right click
-- Natural scrolling (content follows fingers) / Scrolling speed
+- Tracking speed (same meaning as the built-in trackpad's setting: equal values feel equal)
+- Tap to click / Tap then drag / Two-finger tap for right click / Three-finger drag
+- Rotate with two fingers / Smart zoom (two-finger double tap)
+- Natural scrolling / Momentum scrolling / Scrolling speed
 - Invert left-right and up-down for three-finger swipes
 - Launch at login
 - Language (System / 日本語 / English) — switches immediately
+
+**Advanced tab** — smoothing strength, tap timing and movement limits, drag-lock grace, palm/thumb zone sizes, momentum decay, three-finger swipe sensitivity, with a reset-to-defaults button.
 
 Changes take effect immediately.
 
@@ -150,13 +156,19 @@ A. The pad is running in mouse mode and the switch to PTP mode did not go throug
 - For three/four-finger swipes (DockSwipe), macOS 26.5 ignores the plain CGEvent fields; like
   [joshuarli/iss](https://github.com/joshuarli/iss), the app embeds a raw IOHID payload in field 4205 of the serialized CGEvent
 - The firmware's confidence bit is unreliable (0 for real fingers) and is ignored. Reports carry 4 slots (21 bytes)
+- Pointer acceleration uses Apple's IOHIDFamily parametric curves (the Magic Trackpad parameter set),
+  calibrated against gains measured on a built-in MacBook trackpad (12 points, 5–375 mm/s of finger speed).
+  Positions are smoothed with a one-euro filter; tap/palm/thumb thresholds follow libinput; momentum decay
+  matches the measured 0.9952 per millisecond
 
 ## Layout
 
 ```
 Sources/Engine/
   Settings.swift        settings (backed by UserDefaults)
-  Synth.swift           CGEvent synthesis (pointer / clicks / scroll / pinch / DockSwipe)
+  Synth.swift           CGEvent synthesis (pointer / clicks / scroll / pinch / rotate / DockSwipe)
+  PointerAcceleration.swift  Apple's parametric acceleration curves and the measured gain table
+  TouchFilter.swift     one-euro position smoothing and per-touch state
   GestureEngine.swift   PTP report parsing, gesture classification, momentum scrolling
   HIDDevice.swift       IOHIDManager: seize, PTP mode switch, report input, retry while waiting for permission
   Diagnostics.swift     raw report recording and export
@@ -165,6 +177,7 @@ Sources/App/
   ABTrackPTPadApp.swift menu-bar UI (SwiftUI MenuBarExtra) and settings window
   StatusModel.swift     permission / device monitoring, auto-relaunch, launch at login
   SettingsView.swift    Gestures tab
+  AdvancedView.swift    Advanced tab
   StatusView.swift      Permissions tab
   Localization.swift    UI string lookup (L("…"))
 Resources/Info.plist

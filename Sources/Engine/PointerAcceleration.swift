@@ -32,8 +32,8 @@ struct PointerAcceleration {
 
     private static let cursorScale = 96.0 / 67.0
     private static let frameRate = 67.0
-    /// Measured against the built-in trackpad (devtools captures/internal2.csv): the theoretical
-    /// f(v)×96 overshoots the real pointer speed by a constant ≈2.05 across 16…230 mm/s.
+    /// Measured against a built-in MacBook trackpad: the theoretical f(v)×96 overshoots the
+    /// real pointer speed by a constant ≈2.05 across 16…230 mm/s.
     private static let calibration = 0.49
 
     private let c: Curve
@@ -92,8 +92,8 @@ struct PointerAcceleration {
 
     // MARK: measured gain
 
-    /// Gain measured on the built-in trackpad at tracking speed 3.0
-    /// (devtools captures internal2/internal-slow3): (finger mm/s, pointer pt per mm).
+    /// Gain measured on a built-in MacBook trackpad at tracking speed 3.0:
+    /// (finger mm/s, pointer pt per mm).
     private static let measured: [(v: Double, g: Double)] = [
         (0, 7.0), (5, 7.05), (10, 7.7), (16, 8.9), (25, 10.7), (40, 15.6), (60, 20.8),
         (90, 30.0), (130, 37.0), (175, 51.5), (230, 61.5), (375, 81.6),
